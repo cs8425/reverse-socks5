@@ -114,8 +114,6 @@ if (cluster.isMaster) {
 //	ser.listen(conf.resbind);
 //	console.log(now(), 'res server start at', conf.resbind);
 
-//
-
 	var mkserver = function(profile){
 		var ser = net.createServer({
 			allowHalfOpen: false,

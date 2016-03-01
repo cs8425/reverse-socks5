@@ -55,7 +55,7 @@ if (cluster.isMaster) {
 					socket.id = id;
 					console.log('[new_ch]', ch_id);
 				}else{
-					console.log('[new_ch][full]', ch_id);
+					console.log('[new_ch][full]', ch_id, self.count());
 					socket.destroy();
 				}
 			}
@@ -69,15 +69,17 @@ if (cluster.isMaster) {
 		hub.on('close', function() {
 			console.log(now(), '[to hub disconnected]');
 			if(iomux) iomux.closeAll();
+			var t = setTimeout(connect, 3000);
 		});
 
 		return hub;
 	}
 
-
-	to_hub(conf.hub_host, conf.hub_port);
-	console.log(now(), 'reverse proxy server connect to', conf.hub_host, ':', conf.hub_port);
-
+	var connect = function (){
+		to_hub(conf.hub_host, conf.hub_port);
+		console.log(now(), 'reverse proxy server connect to', conf.hub_host, ':', conf.hub_port);
+	}
+	connect();
 }
 
 

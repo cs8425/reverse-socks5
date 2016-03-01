@@ -246,8 +246,9 @@ util.inherits(mux, EventEmitter);
 mux.prototype.count = function (){
 	var allo = this.allo;
 	return allo.count;
-//	console.log('[mux input close]', this);
+//	console.log('[mux sub count]', this);
 }
+
 // do at local only
 mux.prototype.assign = function (id, socket){
 	var self = this;

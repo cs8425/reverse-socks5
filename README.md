@@ -3,10 +3,10 @@ A basic reverse tcp mux server written in node.js.
 
 ##Features/Limitations
 
-- up to 255 channels
+- up to 255 channels only
 - raw tcp *only* now
-- resource server is *not* auto re-connect
-- hub server have no Admin tool/interface yet
+- ~~resource server is *not* auto re-connect~~
+- hub server have *not* admin tool/interface yet
 
 ##Architecture
 
@@ -16,9 +16,9 @@ A basic reverse tcp mux server written in node.js.
 
 
 ```
-                              |                          A                   |     [network]      |       B        |        |     C    |
-'some way else' <--- | socks5 server| <-- | res server | -----------------> | hub server | <---  | client |
-
+                     |                 A               |                    |     B      |      |    C   |
+'some way else' <--- | socks5 server| <-- | res server | -----------------> | hub server | <--- | client |
+                     |                                 |     [network]      |            |      |        |
 ```
 
 
@@ -56,4 +56,13 @@ $ node hub.js
 
 ###Client (C)
 Just set proxy server to hub server.
+In example, first resource server will assign to port `2010`.
+
+
+##TODO
+- [ ] built-in socks5-proxy-server
+- [ ] add admin tool/interface
+- [x] resource server auto re-connect
+
+
 
