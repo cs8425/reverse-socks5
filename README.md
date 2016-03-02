@@ -1,5 +1,5 @@
-#reverse-socks5-proxy
-A basic reverse tcp mux server written in node.js.
+#reverse-tcp-proxy
+Trun any tcp base server to reverse connection.
 
 ##Features/Limitations
 
@@ -35,7 +35,10 @@ set config in `res.js`
 ```
 
 ```
-[start your socks server first]
+# start the socks 5 server
+$ node socks5.js &
+
+# start resource server
 $ node res.js
 ```
 
