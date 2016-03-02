@@ -9,6 +9,9 @@ var conf = {
 
 var handleRequest = function (chunk) {
 	var client = this;
+	var client_ip = client.remoteAddress;
+	var client_port = client.remotePort;
+
 	client.pause();
 
 	if (chunk[0] !== 0x05 && chunk[2] !== 0x00) {
@@ -82,12 +85,22 @@ var handleRequest = function (chunk) {
 		}
 
 	}).once('error', function(err) {
+		console.log('[forward error]', client_ip, client_port, err);
 		if(client.forward) {
 			client.end('%d%d', 0x05, 0x01);
+			client.forward = null;
+			client.isend = true;
+		}
+	}).once('end', function() {
+		console.log('[forward end]', client_ip, client_port);
+		if(!client.isend) {
+			client.isend = true;
 		}
 	}).once('close', function() {
+		console.log('[forward close]', client_ip, client_port);
 		if(client.forward) {
-			client.end();
+			if(!client.isend) client.end();
+			client.forward = null;
 		}
 	});
 
@@ -119,7 +132,7 @@ var handshake = function (socket, chunk) {
     if (auth_methods.indexOf(0x00) > -1) {
         console.log('Handing off to handleRequest');
         socket.once('data', handleRequest);
-        socket.write(resp);
+        if(!socket.isend) socket.write(resp);
     } else {
         console.log('Unsuported authentication method -- disconnecting');
         resp[1] = 0xFF;
@@ -132,20 +145,33 @@ var handler = function (socket){
 	var client_port = socket.remotePort;
 
 	socket.forward = null;
+	socket.isend = false;
 
 	socket.on('error', function(err) {
-		console.log('[client Error]', client_ip, err);
+		console.log('[client Error]', client_ip, client_port, err);
+		if(socket.forward){
+			socket.forward.destroy();
+			socket.forward = null;
+		}
 	});
 	socket.once('data', function(data) {
 		console.log('[new client]', client_ip, client_port);
 		handshake(socket, data);
 	});
+	socket.on('end', function() {
+		console.log('[client end]', client_ip, client_port);
+		socket.isend = true;
+	});
 	socket.on('close', function() {
-		console.log('[client disconnected]', client_ip);
+		console.log('[client disconnected]', client_ip, client_port);
+		if(socket.forward){
+			socket.forward.destroy();
+			socket.forward = null;
+		}
 	});
 	socket.setTimeout(300 * 1000);
 	socket.on('timeout', function() {
-		console.log('[client timeout]', client_ip);
+		console.log('[client timeout]', client_ip, client_port);
 		socket.destroy();
 	});
 }

@@ -33,7 +33,7 @@ if (cluster.isMaster) {
 } else {
 
 	var conf = {
-		resbind: 2000, // the port for resource server connect
+		resbind: 4030, // the port for resource server connect
 		slots_base: 2010, // the port for client connect
 		slots_count: 5, // from '2010 + 0' to '2010 + 5'
 		admin_port: 9999

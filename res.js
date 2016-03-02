@@ -53,7 +53,7 @@ if (cluster.isMaster) {
 				var id = self.assign(ch_id, socket);
 				if(id >= 0){
 					socket.id = id;
-					console.log('[new_ch]', ch_id);
+					//console.log('[new_ch]', ch_id);
 				}else{
 					console.log('[new_ch][full]', ch_id, self.count());
 					socket.destroy();

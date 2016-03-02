@@ -121,19 +121,19 @@ var rechunk = function (input, output){
 	meta.FIFO = [];
 	meta.buff = new Buffer(0);
 
-	meta.handler = function (chunk){
+	meta.handler = function (chunk1){
 //		console.log(this); // socket
 		var socket = this;
 //		console.log('in', meta, meta.buff, chunk);
-		meta.buff = Buffer.concat([meta.buff, chunk]);
-		chunk = meta.buff;
+		meta.buff = Buffer.concat([meta.buff, chunk1]);
+		var chunk = meta.buff;
 
 		while(1){
 			if(chunk.length < 3) break;
 
 			var pack = readHead(chunk);
 			var len = chunk.length - 3;
-//			console.log(pack);
+//			console.log('[rechunk]', pack);
 			if(pack.type == 1){
 				var datalen = pack.length;
 				if(len < datalen){
@@ -150,6 +150,7 @@ var rechunk = function (input, output){
 			}else{
 				// CONTORLL pack
 				meta.FIFO.push(chunk.slice(0, 3));
+				//meta.buff = chunk = chunk.slice(3);
 				if(len > 0){
 					meta.buff = chunk = chunk.slice(3);
 				}else{
@@ -162,6 +163,7 @@ var rechunk = function (input, output){
 		// trigger emitter
 		if(meta.FIFO.length){
 			process.nextTick(emit_buff);
+			//setImmediate(emit_buff);
 		}
 	}
 
@@ -171,6 +173,7 @@ var rechunk = function (input, output){
 //			console.log('[rechunk]', out);
             output.emit('data', out);
     		process.nextTick(emit_buff);
+			//setImmediate(emit_buff);
     	}
     }
 
@@ -190,11 +193,11 @@ function mux(mux_io){
 //		console.log('[pack]', pack);
 		var out = readHead(pack);
 		var ch_id = out.channel;
+		var socket = allo.getId(ch_id);
 		if(out.type == 1){
-//			console.log('[pack][DATA]', ch_id, out.length, pack.slice(3, 8));
+			console.log('[pack][DATA]', ch_id, out.length, pack.slice(3, 8));
 			meta.emit('data_ch', out.channel, pack.slice(3));
 
-			var socket = allo.getId(ch_id);
 			if(socket){
 				socket.write(pack.slice(3));
 			}else{
@@ -209,14 +212,17 @@ function mux(mux_io){
 				break;
 				case ACT.FIN:
 					ev = 'end_ch';
-					if(allo.getId(ch_id)) meta.end(ch_id);
+					if(socket){
+						meta.end(ch_id, 0);
+						socket.flag = socket.flag | ACT.FIN;
+					}
 				break;
 				case ACT.CLS:
 					ev = 'close_ch';
-					var socket = allo.getId(ch_id);
 					if(socket){
-						meta.close(ch_id);
+						meta.close(ch_id, 0);
 						socket.destroy();
+						socket.flag = socket.flag | ACT.CLS;
 					}
 					if(meta.count() == 0){
 						meta.emit('empty');
@@ -224,7 +230,10 @@ function mux(mux_io){
 				break;
 				case ACT.ERR:
 					ev = 'err_ch';
-					if(allo.getId(ch_id)) meta.error(ch_id, 'by CTRL pack');
+					if(socket){
+						meta.error(ch_id, 'by CTRL pack');
+						socket.flag = socket.flag | ACT.ERR;
+					}
 				break;
 			}
 			if(ev){
@@ -248,34 +257,72 @@ mux.prototype.count = function (){
 	return allo.count;
 //	console.log('[mux sub count]', this);
 }
-
+var binding = function(self, id, socket, type){
+	var allo = self.allo;
+	var mux_io = self.mux_io;
+	var head = (type == 1) ? '[sub]' : '[in]';
+	if(type == 1){
+		id = allo.assign(id, socket);
+		console.log('[mux set new ch]', id, self.count());
+	}else{
+		id = allo.new(socket);
+		var cmd = new Buffer([0xFF, id, ACT.NEW]);
+		console.log('[mux new ch]', id, self.count());
+	}
+	if(id >= 0){
+		if(type != 1) mux_io.write(cmd);
+		socket.id = id;
+		socket.flag = 0x00;
+		socket.on('data', function(data){
+//			console.log(head + '[ch' + id + ']data', data.length, data.slice(0, 5));
+			self.write(id, data);
+		});
+		socket.on('close', function(){
+			console.log(head + '[ch' + id + ']close');
+			self.close(id, !(socket.flag & ACT.CLS));
+		});
+		socket.on('end', function(){
+			console.log(head + '[ch' + id + ']end');
+			self.end(id, !(socket.flag & ACT.FIN));
+		});
+		socket.on('error', function(err){
+			console.log(head + '[ch' + id + ']err', err);
+			self.error(id, err);
+		});
+	}
+	return id;
+}
 // do at local only
 mux.prototype.assign = function (id, socket){
 	var self = this;
+
+	return binding(self, id, socket, 1);
+/*
 	var allo = self.allo;
 	var mux_io = self.mux_io;
 	var id = allo.assign(id, socket);
 	console.log('[mux set new ch]', id, self.count());
 	if(id >= 0){
 		socket.id = id;
+		socket.flag = 0x00;
 		socket.on('data', function(data){
 //			console.log('[sub][ch' + id + ']data', data.length, data.slice(0, 5));
 			self.write(id, data);
 		});
 		socket.on('close', function(){
 			console.log('[sub][ch' + id + ']close');
-			self.close(id);
+			self.close(id, !(socket.flag & ACT.CLS));
 		});
 		socket.on('end', function(){
 			console.log('[sub][ch' + id + ']end');
-			self.end(id);
+			self.end(id, !(socket.flag & ACT.FIN));
 		});
 		socket.on('error', function(err){
 			console.log('[sub][ch' + id + ']err', err);
 			self.error(id, err);
 		});
 	}
-	return id;
+	return id;*/
 }
 mux.prototype.closeAll = function (){
 	var self = this;
@@ -287,6 +334,7 @@ mux.prototype.closeAll = function (){
 		var i = 0;
 		for(i=0; i<slots.length; i++){
 			if(slots[i]){
+				slots[i].flag = slots[i].flag | ACT.CLS;
 				slots[i].destroy();
 			}
 		}
@@ -296,6 +344,9 @@ mux.prototype.closeAll = function (){
 // send over net
 mux.prototype.new = function (socket){
 	var self = this;
+
+	return binding(self, -1, socket, 0);
+/*
 	var allo = self.allo;
 	var mux_io = self.mux_io;
 	var id = allo.new(socket);
@@ -304,41 +355,48 @@ mux.prototype.new = function (socket){
 	if(id >= 0){
 		mux_io.write(cmd);
 		socket.id = id;
+		socket.flag = 0x00;
 		socket.on('data', function(data){
 //			console.log('[in][ch' + id + ']data', data.length, data.slice(0, 5));
 			self.write(id, data);
 		});
 		socket.on('close', function(){
 			console.log('[in][ch' + id + ']close');
-			self.close(id);
+			self.close(id, !(socket.flag & ACT.FIN));
 		});
 		socket.on('end', function(){
 			console.log('[in][ch' + id + ']end');
-			self.end(id);
+			self.end(id, !(socket.flag & ACT.FIN));
 		});
 		socket.on('error', function(err){
 			console.log('[in][ch' + id + ']err', err);
 			self.error(id, err);
 		});
 	}
-	return id;
+	return id;*/
 }
 mux.prototype.write = function (id, data){
-//	console.log('[mux write]', id, data);
+//	console.log('[mux write]', id, data.length, data.slice(0, 5));
 	var mux_io = this.mux_io;
 	var buf = new Buffer([id, 0x00, 0x00]);
 	var len = data.length;
 	var out = data;
 	var offset = 0;
-	var maxlen = 0xFFFF;
+	var maxlen = 0x7FFF;
+//	var maxlen = 1200;
+
+	var bufMx = new Buffer([id, 0x00, 0x00]);
+	bufMx.writeUInt16BE(maxlen, 1);
 
 	var i = 1;
 
 	while(1){
 		if(len > maxlen){
-			console.log('[mux write]', id, i++, offset, len, data.length);
-			buf.writeUInt16BE(maxlen, 1);
-			mux_io.write(buf);
+//			console.log('[mux write]', id, i++, offset, len, data.length);
+			console.log('[mux write]', id, maxlen, out.slice(0, 5));
+			//buf.writeUInt16BE(maxlen, 1);
+			//mux_io.write(buf);
+			mux_io.write(bufMx);
 			//mux_io.write(data.slice(offset, offset + maxlen));
 			offset += maxlen;
 			//len = data.length - offset;
@@ -346,7 +404,8 @@ mux.prototype.write = function (id, data){
 			out = out.slice(maxlen);
 			len -= maxlen;
 		}else{
-			if(i > 1)  console.log('[mux write]', id, i, offset, len, out.length);
+//			if(i > 1)  console.log('[mux write]', id, i, offset, len, out.length);
+			console.log('[mux write]', id, len, out.length, out.slice(0, 5));
 			buf.writeUInt16BE(len, 1);
 			mux_io.write(buf);
 			mux_io.write(out);
@@ -358,22 +417,31 @@ mux.prototype.error = function (ch_id, err){
 	// ch input error
 	console.log('[mux error][' + ch_id + ']', err);
 	var mux_io = this.mux_io;
-	var buf = new Buffer([0xFF, ch_id, ACT.ERR]);
-	mux_io.write(buf);
+	if(err == 'by CTRL pack'){
+
+	}else{
+		var buf = new Buffer([0xFF, ch_id, ACT.ERR]);
+		mux_io.write(buf);
+	}
 }
-mux.prototype.end = function (ch_id){
+mux.prototype.end = function (ch_id, type){
 	// ch end
 //	console.log('[mux input end][' + ch_id + ']');
 	var mux_io = this.mux_io;
-	var buf = new Buffer([0xFF, ch_id, ACT.FIN]);
-	mux_io.write(buf);
+	if(type){
+		var buf = new Buffer([0xFF, ch_id, ACT.FIN]);
+		mux_io.write(buf);
+	}
 }
-mux.prototype.close = function (ch_id){
+mux.prototype.close = function (ch_id, type){
 	// ch close
 //	console.log('[mux input close][' + ch_id + ']');
 	var mux_io = this.mux_io;
-	var buf = new Buffer([0xFF, ch_id, ACT.CLS]);
-	mux_io.write(buf);
+
+	if(type){
+		var buf = new Buffer([0xFF, ch_id, ACT.CLS]);
+		mux_io.write(buf);
+	}
 
 	var allo = this.allo;
 	allo.freeId(ch_id);
