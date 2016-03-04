@@ -1,12 +1,18 @@
 'use strict';
 
-var util = require('util');
-var EventEmitter = require('events').EventEmitter;
+const util = require('util');
+const EventEmitter = require('events').EventEmitter;
+const stream = require('stream');
+const Transform = require("stream").Transform;
 
 var Mux = {};
 module.exports = Mux;
 
 var Allocate = function (num){
+	if (!(this instanceof Allocate)) {
+		return new Allocate(num);
+	}
+
 	if(num <= 0) return;
 	this.slots = [];
 	this.count = 0;
@@ -91,7 +97,7 @@ Allocate.prototype.dump = function (){
 }
 
 
-var ACT = {
+const ACT = {
 	NEW: 0,
 	FIN: 1,
 	CLS: 2,
@@ -122,7 +128,6 @@ var rechunk = function (input, output){
 	meta.buff = new Buffer(0);
 
 	meta.handler = function (chunk1){
-//		console.log(this); // socket
 		var socket = this;
 //		console.log('in', meta, meta.buff, chunk);
 		meta.buff = Buffer.concat([meta.buff, chunk1]);
@@ -151,10 +156,7 @@ var rechunk = function (input, output){
 				// CONTORLL pack
 				meta.FIFO.push(chunk.slice(0, 3));
 				meta.buff = chunk = chunk.slice(3);
-				if(len > 0){
-					//meta.buff = chunk = chunk.slice(3);
-				}else{
-					//meta.buff = chunk = new Buffer(0);
+				if(len == 0){
 					break;
 				}
 			}
@@ -183,6 +185,10 @@ var rechunk = function (input, output){
 }
 
 function mux(mux_io){
+	if (!(this instanceof mux)) {
+		return new mux(mux_io);
+	}
+
 	var meta = this;
 	meta.mux_io = mux_io;
 
@@ -327,26 +333,19 @@ mux.prototype.write = function (id, data){
 	var buf = new Buffer([id, 0x00, 0x00]);
 	var len = data.length;
 	var out = data;
-	var offset = 0;
 	var maxlen = 0xFFFF;
 
 	var bufMx = new Buffer([id, 0x00, 0x00]);
 	bufMx.writeUInt16BE(maxlen, 1);
 
-	var i = 1;
-
 	while(1){
 		if(len > maxlen){
-//			console.log('[mux write]', id, i++, offset, len, data.length);
 //			console.log('[mux write]', id, maxlen, out.slice(0, 5));
 			mux_io.write(bufMx);
 			mux_io.write(out.slice(0, maxlen));
 			out = out.slice(maxlen);
 			len -= maxlen;
-
-			offset += maxlen;
 		}else{
-//			if(i > 1)  console.log('[mux write]', id, i, offset, len, out.length);
 //			console.log('[mux write]', id, len, out.length, out.slice(0, 5));
 			buf.writeUInt16BE(len, 1);
 			mux_io.write(buf);
@@ -395,5 +394,47 @@ Mux.rechunk = rechunk;
 Mux.Allocate = Allocate;
 
 Mux.mux = mux;
+
+function Socket(isserver, client, options){
+	if (!(this instanceof Socket)) {
+		return new Socket(isserver, client, options);
+	}
+	stream.Duplex.call(this, options);
+
+	var self = this;
+	self.isserver = (isserver) ? true : false;
+	if(!isserver){
+		self.server = new Socket(true, self, options);
+		//self.pipe(self.server);
+		//self.server.pipe(self);
+	}else{
+		self.client = client;
+		//self.client.pipe(self);
+	}
+}
+util.inherits(Socket, stream.Duplex);
+Socket.prototype._read = function(n) {
+//	console.log('[Socket][_read]', this.isserver, n, this._readableState.buffer);
+//	this.push(this._readableState.buffer.shift());
+};
+Socket.prototype._write = function(data, encoding, cb) {
+	var output = (this.isserver) ? this.client : this.server;
+	output.push(data);
+//	console.log('[Socket][_write]', this.isserver, data, output.isserver);
+	cb();
+};
+Socket.prototype.destroy = function() {
+	console.log('[Socket][destroy]', this.isserver, this.id);
+	this.emit('close');
+};
+Socket.prototype.end = function(data) {
+	console.log('[Socket][end]', this.isserver, data, this.id);
+	this.emit('end', data);
+};
+Socket.prototype.setTimeout = function(msecs, cb) {
+	console.log('[Socket][setTimeout]', this.isserver, msecs, cb);
+};
+Mux.Socket = Socket;
+
 
 

@@ -34,7 +34,7 @@ if (cluster.isMaster) {
 
 	var conf = {
 		hub_host: '127.0.0.1', // hub server here
-		hub_port: 2000,
+		hub_port: 4030,
 		local_socks: '127.0.0.1', // your local socks server
 		local_socks_port: 8080
 	};
@@ -66,10 +66,19 @@ if (cluster.isMaster) {
 		hub.on('error', function(err) {
 			console.log(now(), '[to hub Error]', err);
 		});
+		hub.on('end', function() {
+			console.log(now(), '[to hub End]');
+			hub.destroy();
+		});
 		hub.on('close', function() {
 			console.log(now(), '[to hub disconnected]');
 			if(iomux) iomux.closeAll();
 			var t = setTimeout(connect, 3000);
+		});
+		hub.setTimeout(300 * 1000);
+		hub.on('timeout', function() {
+			console.log(now(), '[to hub timeout]');
+			hub.destroy();
 		});
 
 		return hub;
