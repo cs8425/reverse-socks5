@@ -9,6 +9,13 @@ var repl = require("repl");
 
 var mux = require('./mux.js');
 
+var conf = {
+	hub_host: 'cs8425.noip.me', // hub server here
+	hub_port: 4030,
+	local_socks: '127.0.0.1', // your local socks server
+	local_socks_port: 8080
+};
+
 var pand = function(num) {
     return (num < 10) ? '0' + num : num + '';
 }
@@ -34,30 +41,29 @@ if (cluster.isMaster) {
 
 } else {
 
-	var conf = {
-		hub_host: '127.0.0.1', // hub server here
-		hub_port: 4030,
-		local_socks: '127.0.0.1', // your local socks server
-		local_socks_port: 8080
-	};
+var sockslog = function (){
+	process.stdout.write('[socks]');
+	console.log.apply(null, arguments)
+}
 
 var handleRequest = function (chunk) {
 	var client = this;
-	var client_ip = client.id;
-	var client_port = client.id;
+	var client_ip = client.remoteAddress;
+	var client_port = client.remotePort;
+	var errBuf = new Buffer([0x05, 0x01]);
 
 	client.pause();
 
 	if (chunk[0] !== 0x05 && chunk[2] !== 0x00) {
-		console.log('handleRequest: wrong socks version: %d', chunk[0]);
-		client.end('%d%d', 0x05, 0x01);
+		sockslog('[handleRequest]wrong socks version: %d', chunk[0]);
+		client.end(errBuf);
 		return;
     }
 
 	var cmd = chunk[1];
 	if(cmd != 0x01) {
-		console.log('unsupported command: %d', cmd);
-		client.end('%d%d', 0x05, 0x01);
+		sockslog('[handleRequest]unsupported command: %d', cmd);
+		client.end(errBuf);
 		return;
 	}
 
@@ -96,8 +102,8 @@ var handleRequest = function (chunk) {
 			chunk = chunk.slice(22);
 
 		default:
-			console.log('unsupported address type: %d', addrtype);
-			client.end('%d%d', 0x05, 0x01);
+			sockslog('unsupported address type: %d', addrtype);
+			client.end(errBuf);
 			return;
 	}
 
@@ -105,7 +111,6 @@ var handleRequest = function (chunk) {
 		responseBuf[1] = 0x00;
 		responseBuf[2] = 0x00;
 		client.write(responseBuf) // emit success to client
-//		client.removeListener('data', onClientData);
 
 		client.pipe(dest);
 		dest.pipe(client);
@@ -119,19 +124,20 @@ var handleRequest = function (chunk) {
 		}
 
 	}).once('error', function(err) {
-		console.log('[forward error]', client_ip, client_port, err);
+		sockslog('[forward error]', client_ip, client_port, ' -> ', host, port, err);
 		if(client.forward) {
-			client.end('%d%d', 0x05, 0x01);
+			//client.end(errBuf);
+			client.destroy();
 			client.forward = null;
 			client.isend = true;
 		}
 	}).once('end', function() {
-		console.log('[forward end]', client_ip, client_port);
+		sockslog('[forward end]', client_ip, client_port, ' -> ', host, port);
 		if(!client.isend) {
 			client.isend = true;
 		}
 	}).once('close', function() {
-		console.log('[forward close]', client_ip, client_port);
+		sockslog('[forward close]', client_ip, client_port, ' -> ', host, port);
 		if(client.forward) {
 			if(!client.isend) client.end();
 			client.unpipe(client.forward);
@@ -145,14 +151,14 @@ var handleRequest = function (chunk) {
 var handshake = function (socket, chunk) {
 //	var socket = this;
     if (chunk[0] != 0x05) {
-        console.log('handshake: wrong socks version: %d', chunk[0]);
+        sockslog('[handshake]wrong socks version: %d', chunk[0]);
         socket.end();
 		return;
     }
 
     var method_count = chunk[1];
 	if(method_count != chunk.length - 2){
-		console.log('handshake: wrong method count: %d', method_count, chunk.length - 2);
+		sockslog('[handshake]wrong method count: %d', method_count, chunk.length - 2);
 		socket.end();
 		return;
 	}
@@ -162,44 +168,44 @@ var handshake = function (socket, chunk) {
     for (var i=2; i < method_count + 2; i++) {
         auth_methods.push(chunk[i]);
     }
-    console.log('Supported auth methods: %j', auth_methods);
+    sockslog('[handshake]Supported auth methods: %j', auth_methods);
 
     var resp = new Buffer([0x05, 0x00]);
     if (auth_methods.indexOf(0x00) > -1) {
-        console.log('Handing off to handleRequest');
+        sockslog('[handshake]go to handleRequest');
         socket.once('data', handleRequest);
         if(!socket.isend) socket.write(resp);
     } else {
-        console.log('Unsuported authentication method -- disconnecting');
+        sockslog('[handshake]Unsuported authentication method -- disconnecting');
         resp[1] = 0xFF;
         socket.end(resp);
     }
 }
 
 var handler = function (socket){
-	var client_ip = socket.id;
-	var client_port = socket.id;
+	var client_ip = socket.remoteAddress;
+	var client_port = socket.remotePort;
 
 	socket.forward = null;
 	socket.isend = false;
 
 	socket.on('error', function(err) {
-		console.log('[client Error]', client_ip, client_port, err);
+		sockslog('[client Error]', client_ip, client_port, err);
 		if(socket.forward){
 			socket.forward.destroy();
 			socket.forward = null;
 		}
 	});
 	socket.once('data', function(data) {
-		console.log('[new client]', client_ip, client_port);
+		sockslog('[new client]', client_ip, client_port);
 		handshake(socket, data);
 	});
 	socket.on('end', function() {
-		console.log('[client end]', client_ip, client_port);
+		sockslog('[client end]', client_ip, client_port);
 		socket.isend = true;
 	});
 	socket.on('close', function() {
-		console.log('[client disconnected]', client_ip, client_port);
+		sockslog('[client disconnected]', client_ip, client_port);
 		if(socket.forward){
 			socket.forward.destroy();
 			socket.unpipe(socket.forward);
@@ -209,7 +215,7 @@ var handler = function (socket){
 	});
 	socket.setTimeout(300 * 1000);
 	socket.on('timeout', function() {
-		console.log('[client timeout]', client_ip, client_port);
+		sockslog('[client timeout]', client_ip, client_port);
 		socket.destroy();
 	});
 }
@@ -230,6 +236,8 @@ var handler = function (socket){
 				if(id >= 0){
 					socket.id = id;
 					socket.server.id = id;
+					socket.remoteAddress = socket.server.remoteAddress = host;
+					socket.remotePort = socket.server.remotePort = port + '-' + id;
 					//console.log('[new_ch]', ch_id);
 				}else{
 					console.log('[new_ch][full]', ch_id, self.count());

@@ -14,17 +14,20 @@ Trun any tcp base server to reverse connection.
 - B : hub server (A & B can connect to)
 - C : user/client (can connect to B only)
 
+the line:
+- `===>` : up to 255 connection, right side do listen
+- `--->` : 1 connection only, right side do listen
 
 ```
-                     |                 A               |                    |     B      |      |    C   |
-'some way else' <--- | socks5 server| <-- | res server | -----------------> | hub server | <--- | client |
-                     |                                 |     [network]      |            |      |        |
+                     |                  A               |                  |     B      |      |    C   |
+'some way else' <=== | socks5 server| <=== | res server | ---------------> | hub server | <=== | client |
+                     |                                  |    [network]     |            |      |        |
 ```
 
 
 ##Usage
 ###resource server (A)
-set config in `res.js`
+set config in `res.js`, `res-socks5.js`
 ```javascript
 	var conf = {
 		hub_host: '127.0.0.1', // hub server here
@@ -40,6 +43,11 @@ $ node socks5.js &
 
 # start resource server
 $ node res.js
+```
+
+or use build-in socks5 proxy(`res-socks5.js`):
+```
+$ node res-socks5.js
 ```
 
 ###hub server (B)
@@ -63,9 +71,10 @@ In example, first resource server will assign to port `2010`.
 
 
 ##TODO
-- [ ] built-in socks5-proxy-server
+- [x] built-in socks5-proxy-server
 - [ ] add admin tool/interface
 - [x] resource server auto re-connect
+- [ ] add TLS/SSL or some else encryption
 
 
 

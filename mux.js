@@ -300,9 +300,7 @@ var binding = function(self, id, socket, type){
 }
 // do at local only
 mux.prototype.assign = function (id, socket){
-	var self = this;
-
-	return binding(self, id, socket, 1);
+	return binding(this, id, socket, 1);
 }
 mux.prototype.closeAll = function (){
 	var self = this;
@@ -323,9 +321,7 @@ mux.prototype.closeAll = function (){
 
 // send status over net
 mux.prototype.new = function (socket){
-	var self = this;
-
-	return binding(self, -1, socket, 0);
+	return binding(this, -1, socket, 0);
 }
 mux.prototype.write = function (id, data){
 //	console.log('[mux write]', id, data.length, data.slice(0, 5));
@@ -334,7 +330,7 @@ mux.prototype.write = function (id, data){
 	var len = data.length;
 	var out = data;
 	var maxlen = 0xFFFF;
-
+if(len == 0) console.log('[mux write]length == 0 !!', id, data);
 	var bufMx = new Buffer([id, 0x00, 0x00]);
 	bufMx.writeUInt16BE(maxlen, 1);
 
@@ -402,38 +398,75 @@ function Socket(isserver, client, options){
 	stream.Duplex.call(this, options);
 
 	var self = this;
+	self.timer = null;
+	self.timeout = null;
+	self.timeoutFn = null;
 	self.isserver = (isserver) ? true : false;
 	if(!isserver){
 		self.server = new Socket(true, self, options);
-		//self.pipe(self.server);
-		//self.server.pipe(self);
 	}else{
 		self.client = client;
-		//self.client.pipe(self);
 	}
+	self.__timeout = function(){
+		console.log('[Socket][Timeout]', self.isserver);
+		self.emit('timeout');
+	};
 }
 util.inherits(Socket, stream.Duplex);
-Socket.prototype._read = function(n) {
+Socket.prototype._read = function(n){
 //	console.log('[Socket][_read]', this.isserver, n, this._readableState.buffer);
 //	this.push(this._readableState.buffer.shift());
+	var self = this;
+	if(self.timeout){
+		if(self.timer) clearTimeout(self.timer);
+		self.timer = setTimeout(self.__timeout, self.timeout);
+		self.timer.unref();
+	}
 };
-Socket.prototype._write = function(data, encoding, cb) {
+Socket.prototype._write = function(data, encoding, cb){
+	var self = this;
+	if(self.timeout){
+		if(self.timer) clearTimeout(self.timer);
+		self.timer = setTimeout(self.__timeout, self.timeout);
+		self.timer.unref();
+	}
+
 	var output = (this.isserver) ? this.client : this.server;
 	output.push(data);
 //	console.log('[Socket][_write]', this.isserver, data, output.isserver);
 	cb();
 };
-Socket.prototype.destroy = function() {
-	console.log('[Socket][destroy]', this.isserver, this.id);
-	this.emit('close');
+Socket.prototype.destroy = function(exception){
+	console.log('[Socket][destroy]', this.isserver, this.id, exception);
+	this.emit('close', exception);
 };
-Socket.prototype.end = function(data) {
+Socket.prototype.end = function(data, encoding){
 	console.log('[Socket][end]', this.isserver, data, this.id);
-	this.emit('end', data);
+	//this.emit('end', data);
+	stream.Duplex.prototype.end.call(this, data, encoding);
 };
-Socket.prototype.setTimeout = function(msecs, cb) {
+Socket.prototype.setTimeout = function(msecs, cb){
 	console.log('[Socket][setTimeout]', this.isserver, msecs, cb);
+	var self = this;
+	if(msecs === 0){
+		if(self.timer) clearTimeout(self.timer);
+		if (cb) {
+			this.removeListener('timeout', cb);
+		}
+	}else{
+		self.timeout = msecs;
+		self.timer = setTimeout(self.__timeout, self.timeout);
+		self.timer.unref();
+		if (cb) {
+			this.once('timeout', cb);
+		}
+	}
+	return this;
 };
+/*Socket.prototype.__timeout = function(){
+	console.log('[Socket][Timeout]', this.isserver);
+	this.emit('timeout');
+};*/
 Mux.Socket = Socket;
 
 
